@@ -21,31 +21,37 @@ function interpret(input) {
 
     let parts = input.split("\n\n");
 
-    let results = parts.map((part) => {
+    let results = parts.reduce((acc, part) => {
         let res = part.match(/\n/g);
         let num_newlines = res ? res.length : 0;
-
-        let brs = "<br>".repeat(num_newlines);
-        let interpretOutput = numbat.interpret(part);
         
+
+        let interpretOutput = numbat.interpret(part);
         let output = part.trim().length > 0 ? interpretOutput.output.trim() : "";
         
         if (interpretOutput.is_error) {
-            output = output.replace(/<(input:\d+)>/gm, "&lt;$1&gt;")
+            output = output.replace(/<(input:\d+)>/gm, "&lt;$1&gt;");
         }
-        let result = "";
+        
+        let num_outputLines = output.match(/\n|\<br\/?>/g)?.length ?? 0;
 
-        if (output.trim().length === 0) {
-            result = brs + "<br>";
-        } else {
-            result = brs + "<div>" + output  + "</div>";
+
+        num_newlines += 2;
+        if (output.length !== 0) {
+            num_outputLines += 1;
         }
 
+        let totalEditorLineNum = acc.totalEditorLineNum + num_newlines;
+        let pos = Math.max(totalEditorLineNum, acc.totalResultLineNum);
+        let totalResultLineNum = pos + num_outputLines;
+
+        let result = output.trim().length > 0 ? `<div style="position: relative; top: ${pos}lh; margin-bottom: ${-num_outputLines}lh">` + output  + "</div>" : "";
+        
         interpretOutput.free();
-        return result;
-    });
+        return {totalEditorLineNum: totalEditorLineNum, totalResultLineNum: totalResultLineNum, content: acc.content + result};
+    }, {totalEditorLineNum: -2, totalResultLineNum: 0, content: ""});
 
-    return results.join("<br>");
+    return results.content;
 }
 
 ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.36.2/");
@@ -170,7 +176,7 @@ braking_distance(50 km/h) -> m`);
     function evaluate() {
         let code = editor.getValue();
 
-        let output = interpret(code);
+        let output = interpret(code, editor);
 
         document.getElementById("results").innerHTML = output;
     }
