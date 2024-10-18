@@ -66,6 +66,20 @@ fn str_repeat(a: String, n: Scalar) -> String =
     then str_append(a, str_repeat(a, n - 1))
     else ""
 
+fn _reverse(s: String, acc: String) -> String = 
+  if s_length == 0
+    then acc
+  else 
+    _reverse(rest, str_append(first, acc))
+  where s_length = str_length(s)
+    and first = str_slice(s, 0, 1)
+    and rest = str_slice(s, 1, s_length)
+
+@description("Returns a string with the characters in the reverse order of the input")
+@example("str_reverse(\"abc\")")
+fn str_reverse(s: String) -> String = _reverse(s, "")
+
+
 fn _bin_digit(x: Scalar) -> String =
   chr(48 + mod(x, 2))
 
