@@ -9,6 +9,7 @@ use core::error
 use core::random
 use core::numbers
 use core::mixed_units
+use core::formats
 
 use math::constants
 use math::transcendental

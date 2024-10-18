@@ -1,0 +1,49 @@
+use core::strings
+use core::functions
+
+@description("Formats value as an ordinary decimal number")
+@example("fmt_decimal(1234.56)")
+fn fmt_decimal<A>(value: A) -> String = join(tail(parts) |> cons(str_replace(head(parts), "_", "")), " ")
+    where str: String = "{value}"
+      and parts: List<String> = str_split(" ", str)
+
+fn _remove_leading_zeroes(s: String) -> String = 
+  if str_find(s, "0") == 0
+    then (str_slice(s, 1, str_length(s)) |> _remove_leading_zeroes)
+  else if str_find(s, ".") == 0
+    then str_append("0", s)
+  else s
+
+fn _remove_trailing_zeroes(s: String) -> String = s |> str_reverse |> _remove_leading_zeroes |> str_reverse
+
+fn _fmt_science_positive_exponent<A: Dim>(value: A) -> String = 
+  if str_contains(value_str, "e")
+    then clean_str
+    else  join(cons(str_append(new_value_str, "e+{exponent}"), tail(parts)), " ")
+  where clean_str: String = fmt_decimal(value)
+    and parts: List<String> = str_split(" ", clean_str)
+    and value_str: String = head(parts)
+    and exponent:  Scalar = (if str_contains(value_str, "." ) then str_find(value_str, ".") else str_length(value_str)) - 1
+    and new_value_str: String = _remove_trailing_zeroes(join([str_slice(value_str, 0, 1), ".", str_replace(str_slice(value_str, 1, str_length(value_str)), ".", "")], ""))
+
+fn _fmt_science_negative_exponent<A: Dim>(value: A) -> String = 
+  if str_contains(value_str, "e")
+    then clean_str
+    else  join(cons(str_append(new_value_str, "e{exponent}"), tail(parts)), " ")
+  where clean_str: String = fmt_decimal(value)
+    and parts: List<String> = str_split(" ", clean_str)
+    and value_str: String = str_slice(head(parts), 2, str_length(head(parts))) |> _remove_leading_zeroes
+    and exponent:  Scalar = str_length(value_str) - (str_length(head(parts)) - 1)
+    and new_value_str: String = _remove_trailing_zeroes(join([str_slice(value_str, 0, 1), ".", str_replace(str_slice(value_str, 1, str_length(value_str)), ".", "")], ""))
+
+fn _fmt_science<A: Dim>(value: A) -> String = 
+  if str_find("{value}", "0") == 0
+  then _fmt_science_negative_exponent(value)
+  else _fmt_science_positive_exponent(value)
+
+@description("Formats value in scientific notation")
+@example("fmt_science(1234.56)")
+fn fmt_science<A: Dim>(value: A) -> String = 
+  if value < 0 
+  then "-{_fmt_science(abs(value))}" 
+  else _fmt_science(value)
