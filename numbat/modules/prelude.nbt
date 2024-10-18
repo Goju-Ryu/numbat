@@ -8,6 +8,7 @@ use core::strings::extra
 use core::error
 use core::random
 use core::numbers
+use core::formats
 
 use math::constants
 use math::transcendental
