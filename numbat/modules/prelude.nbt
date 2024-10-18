@@ -4,6 +4,7 @@ use core::dimensions
 use core::functions
 use core::lists
 use core::strings
+use core::strings::extra
 use core::error
 use core::random
 use core::numbers

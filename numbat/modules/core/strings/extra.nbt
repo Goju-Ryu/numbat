@@ -1,0 +1,21 @@
+use core::strings
+use core::lists
+
+fn _str_split(acc: List<String>, pattern: String, s: String) -> List<String> =
+  if pattern_length == 0
+    then error("Pattern cannot be empty")
+  else if start == -1 
+    then cons_end(s, acc)
+  else if str_length(s) == 0
+    then acc
+  else
+    _str_split(new_acc, pattern, new_s)
+  where start = str_find(s, pattern)
+    and pattern_length = str_length(pattern) 
+    and new_acc = cons_end(str_slice(s, 0, start), acc)
+    and new_s = str_slice(s, start + pattern_length, str_length(s))
+
+
+@description("Splits the string into multiple substrings delimitered by the pattern")
+@example("str_split(\"_\", \"Hello_World!\")")
+fn str_split(pattern: String, s: String) -> List<String> = _str_split([], pattern, s)
