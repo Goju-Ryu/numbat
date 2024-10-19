@@ -14,35 +14,34 @@ fn _remove_leading_zeroes(s: String) -> String =
     then str_append("0", s)
   else s
 
-fn _remove_trailing_zeroes(s: String) -> String = s |> str_reverse |> _remove_leading_zeroes |> str_reverse
+# fn _remove_trailing_zeroes(s: String) -> String = s |> str_reverse |> _remove_leading_zeroes |> str_reverse
 
-fn _fmt_science_positive_exponent<A: Dim>(value: A) -> String = 
-  if str_contains(value_str, "e")
-    then clean_str
-    else  join(cons(str_append(new_value_str, "e+{exponent}"), tail(parts)), " ")
+fn _get_exponent<A: Dim>(value: A) -> Scalar =
+  if str_find(value_str, "0") != 0
+      then
+        if str_contains(value_str, "." ) 
+          then str_find(value_str, ".") - 1
+          else str_length(value_str) - 1
+      else (str_length(trimmed_decimal_value_str)) - (str_length(value_str) - 1)
   where clean_str: String = fmt_decimal(value)
     and parts: List<String> = str_split(" ", clean_str)
     and value_str: String = head(parts)
-    and exponent:  Scalar = (if str_contains(value_str, "." ) then str_find(value_str, ".") else str_length(value_str)) - 1
-    and new_value_str: String = _remove_trailing_zeroes(join([str_slice(value_str, 0, 1), ".", str_replace(str_slice(value_str, 1, str_length(value_str)), ".", "")], ""))
-
-fn _fmt_science_negative_exponent<A: Dim>(value: A) -> String = 
-  if str_contains(value_str, "e")
-    then clean_str
-    else  join(cons(str_append(new_value_str, "e{exponent}"), tail(parts)), " ")
-  where clean_str: String = fmt_decimal(value)
-    and parts: List<String> = str_split(" ", clean_str)
-    and value_str: String = str_slice(head(parts), 2, str_length(head(parts))) |> _remove_leading_zeroes
-    and exponent:  Scalar = str_length(value_str) - (str_length(head(parts)) - 1)
-    and new_value_str: String = _remove_trailing_zeroes(join([str_slice(value_str, 0, 1), ".", str_replace(str_slice(value_str, 1, str_length(value_str)), ".", "")], ""))
+    and trimmed_decimal_value_str = str_slice(head(parts), 2, str_length(head(parts))) |> _remove_leading_zeroes  
 
 fn _fmt_science<A: Dim>(value: A) -> String = 
-  if str_find("{value}", "0") == 0
-  then _fmt_science_negative_exponent(value)
-  else _fmt_science_positive_exponent(value)
+  if str_contains(value_str, "e")
+    then clean_str
+    else  join(cons(str_append(new_value_str, exponent_str), tail(parts)), " ")
+  where clean_str: String = fmt_decimal(value)
+    and parts: List<String> = str_split(" ", clean_str)
+    and value_str: String = head(parts)
+    and exponent:  Scalar = _get_exponent(value)
+    and new_value_str: String = str_replace("{value * 10^(-exponent)}", str_append(" ", join(tail(parts), " ")), "")
+    and exponent_str: String = if exponent > 0 then "e+{exponent}" else "e{exponent}"
 
 @description("Formats value in scientific notation")
 @example("fmt_science(1234.56)")
+@example("fmt_science(0.000123456)")
 fn fmt_science<A: Dim>(value: A) -> String = 
   if value < 0 
   then "-{_fmt_science(abs(value))}" 
