@@ -1,3 +1,31 @@
+# fmt_decimal
+assert_eq(fmt_decimal(1), "1")
+assert_eq(fmt_decimal(0.1), "0.1")
+assert_eq(fmt_decimal(0.000001), "0.000001")
+assert_eq(fmt_decimal(0.0000000000000001), "0.0000000000000001")
+
+
+assert_eq(fmt_decimal(1 m), "1 m")
+assert_eq(fmt_decimal(0.1 m), "0.1 m")
+assert_eq(fmt_decimal(0.000001 m), "0.000001 m")
+assert_eq(fmt_decimal(0.0000000000000001 m), "0.0000000000000001 m")
+
+assert_eq(fmt_decimal(1),                     "1")
+assert_eq(fmt_decimal(1_000),                 "1000")
+assert_eq(fmt_decimal(1_000_000),             "1000000")
+assert_eq(fmt_decimal(1_000_000_000),         "1000000000")
+assert_eq(fmt_decimal(1_000_000_000_000),     "1000000000000")
+assert_eq(fmt_decimal(1_000_000_000_000_000), "1000000000000000")
+
+assert_eq(fmt_decimal(1 m),                     "1 m")
+assert_eq(fmt_decimal(1_000 m),                 "1000 m")
+assert_eq(fmt_decimal(1_000_000 m),             "1000000 m")
+assert_eq(fmt_decimal(1_000_000_000 m),         "1000000000 m")
+assert_eq(fmt_decimal(1_000_000_000_000 m),     "1000000000000 m")
+assert_eq(fmt_decimal(1_000_000_000_000_000 m), "1000000000000000 m")
+
+
+
 # fmt_science
 assert_eq(fmt_science(1), "1.0e+0")
 
