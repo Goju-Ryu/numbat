@@ -2,11 +2,37 @@ use core::strings
 use core::strings::extra
 use core::functions
 
+let _empty_str = ""
+let _period_str = "."
+let _zero_str = "0"
+
+fn _remove_trailing_zeroes(s: String) -> String = 
+  if !str_contains(s, ".")
+  then s
+  else if last_char == "0"
+    then (str_slice(s, 0, s_length - 1) |> _remove_trailing_zeroes)
+  else if last_char == "."
+    then str_slice(s, 0, s_length - 1)
+  else s
+  where s_length = str_length(s)
+    and last_char = str_slice(s, s_length - 1, s_length)
+
 @description("Formats value as an ordinary decimal number")
 @example("fmt_decimal(1234.56)")
-fn fmt_decimal<A>(value: A) -> String = join(tail(parts) |> cons(str_replace(head(parts), "_", "")), " ")
+fn fmt_decimal<A>(value: A) -> String = join(tail(parts) |> cons(str_replace(out_str, "_", "")), " ")
     where str: String = "{value}"
       and parts: List<String> = str_split(" ", str)
+      and value_str: String = head(parts)
+      and value_str_parts = str_split("e", value_str)
+      and value_str_value_part = head(value_str_parts)
+      and decimal_index = str_find(value_str_value_part, ".")
+      and decimal_count: Scalar = str_length(value_str_value_part) - (if decimal_index != -1 then decimal_index + 1 else str_length(value_str_value_part))
+      and out_str: String = if !str_contains(value_str, "e") 
+        then value_str
+        else if !str_contains(value_str, "e-")
+          then "{str_replace(value_str_value_part, _period_str, _empty_str)}{str_repeat(_zero_str, parse_int(head(tail(value_str_parts))) - decimal_count)}"
+          else "0.{str_repeat(_zero_str, (-parse_int(head(tail(value_str_parts)))) - 1)}{str_replace(value_str_value_part, _period_str, _empty_str)}" |>
+          _remove_trailing_zeroes
 
 fn _remove_leading_zeroes(s: String) -> String = 
   if str_find(s, "0") == 0
