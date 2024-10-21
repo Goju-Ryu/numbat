@@ -1,4 +1,5 @@
 use core::strings
+use core::strings::extra
 use core::functions
 
 @description("Formats value as an ordinary decimal number")
@@ -14,15 +15,13 @@ fn _remove_leading_zeroes(s: String) -> String =
     then str_append("0", s)
   else s
 
-# fn _remove_trailing_zeroes(s: String) -> String = s |> str_reverse |> _remove_leading_zeroes |> str_reverse
-
 fn _get_exponent<A: Dim>(value: A) -> Scalar =
   if str_find(value_str, "0") != 0
-      then
-        if str_contains(value_str, "." ) 
-          then str_find(value_str, ".") - 1
-          else str_length(value_str) - 1
-      else (str_length(trimmed_decimal_value_str)) - (str_length(value_str) - 1)
+    then
+      if str_contains(value_str, "." ) 
+        then str_find(value_str, ".") - 1
+        else str_length(value_str) - 1
+    else (str_length(trimmed_decimal_value_str)) - (str_length(value_str) - 1)
   where clean_str: String = fmt_decimal(value)
     and parts: List<String> = str_split(" ", clean_str)
     and value_str: String = head(parts)
@@ -31,13 +30,14 @@ fn _get_exponent<A: Dim>(value: A) -> Scalar =
 fn _fmt_science<A: Dim>(value: A) -> String = 
   if str_contains(value_str, "e")
     then clean_str
-    else  join(cons(str_append(new_value_str, exponent_str), tail(parts)), " ")
+    else join(cons(str_append(output_value_str, exponent_str), tail(parts)), " ")
   where clean_str: String = fmt_decimal(value)
     and parts: List<String> = str_split(" ", clean_str)
     and value_str: String = head(parts)
     and exponent:  Scalar = _get_exponent(value)
     and new_value_str: String = str_replace("{value * 10^(-exponent)}", str_append(" ", join(tail(parts), " ")), "")
-    and exponent_str: String = if exponent > 0 then "e+{exponent}" else "e{exponent}"
+    and output_value_str: String = if str_contains(new_value_str, "." ) then new_value_str else "{new_value_str}.0"
+    and exponent_str: String = if exponent >= 0 then "e+{exponent}" else "e{exponent}"
 
 @description("Formats value in scientific notation")
 @example("fmt_science(1234.56)")
