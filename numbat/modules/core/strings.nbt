@@ -79,6 +79,32 @@ fn _reverse(s: String, acc: String) -> String =
 @example("str_reverse(\"abc\")")
 fn str_reverse(s: String) -> String = _reverse(s, "")
 
+fn _is_whitespace(s: String) -> Bool = 
+    if s == " " || s == "\n" || s == "\t"
+      then true
+      else false
+  
+
+@description("Removes all trailing spaces, tabs and newlines")
+@example("\"   space   \" |> str_trim_start")
+fn str_trim_start(s: String) -> String = 
+  if s_length == 0
+    then s
+    else if _is_whitespace(head)
+      then str_trim_start(tail)
+      else s
+  where s_length = str_length(s)
+    and head = str_slice(s, 0, 1)
+    and tail = str_slice(s, 1, s_length)
+
+@description("Removes all trailing spaces, tabs and newlines")
+@example("\"   space   \" |> str_trim_end")
+fn str_trim_end(s: String) -> String = s |> str_reverse |> str_trim_start |> str_reverse
+
+@description("Removes all leading and trailing spaces, tabs and newlines")
+@example("\"   space   \" |> str_trim")
+fn str_trim(s: String) -> String = s |> str_trim_start |> str_trim_end
+
 
 fn _bin_digit(x: Scalar) -> String =
   chr(48 + mod(x, 2))
