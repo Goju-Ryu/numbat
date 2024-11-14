@@ -1,6 +1,7 @@
 use core::strings
 use core::strings::extra
 use core::functions
+use math::number_theory
 
 let _empty_str = ""
 let _period_str = "."
@@ -49,7 +50,7 @@ fn _get_exponent<A: Dim>(value: A) -> Scalar =
         else str_length(value_str) - 1
     else (str_length(trimmed_decimal_value_str)) - (str_length(value_str) - 1)
   where clean_str: String = fmt_decimal(value)
-    and parts: List<String> = str_split(" ", clean_str)
+    and parts: List<String> = clean_str |> str_split(" ")
     and value_str: String = head(parts)
     and trimmed_decimal_value_str = str_slice(head(parts), 2, str_length(head(parts))) |> _remove_leading_zeroes  
 
@@ -58,7 +59,7 @@ fn _fmt_science<A: Dim>(value: A) -> String =
     then clean_str
     else join(cons(str_append(output_value_str, exponent_str), tail(parts)), " ")
   where clean_str: String = fmt_decimal(value)
-    and parts: List<String> = str_split(" ", clean_str)
+    and parts: List<String> = clean_str |> str_split(" ")
     and value_str: String = head(parts)
     and exponent:  Scalar = _get_exponent(value)
     and new_value_str: String = str_replace("{value * 10^(-exponent)}", str_append(" ", join(tail(parts), " ")), "")
@@ -72,3 +73,55 @@ fn fmt_science<A: Dim>(value: A) -> String =
   if value < 0 
   then "-{_fmt_science(abs(value))}" 
   else _fmt_science(value)
+
+
+struct Fraction {
+  numerator: Scalar,
+  denominator: Scalar,
+}
+
+
+fn _get_as_fraction(value: Scalar) -> Fraction = 
+  if decimal_index == -1
+    then Fraction { numerator: value, denominator: 1 }
+    else Fraction { numerator: numerator, denominator: denominator}
+  where value_str = fmt_decimal(value)
+    and decimal_index = str_find(value_str, ".")
+    and offset = 10^(str_length(value_str) - (decimal_index + 1))
+    and offset_value = value * offset
+    and value_gcd = gcd(offset_value, offset)
+    and numerator = offset_value / value_gcd
+    and denominator = offset / value_gcd
+
+@description("Formats value to be represented as a fraction which may have a numerator larger than its denominator")
+@example("fmt_improper_fraction(1234.56)")
+@example("fmt_improper_fraction(0.000123456)")
+fn fmt_improper_fraction(value: Scalar) -> String = 
+  if decimal_index == -1
+    then str_append(value_str, "/1")
+    else "{numerator}/{denominator}"
+  where value_str = fmt_decimal(value)
+    and decimal_index = str_find(value_str, ".")
+    and offset = 10^(str_length(value_str) - (decimal_index + 1))
+    and offset_value = value * offset
+    and value_gcd = gcd(value_of(offset_value), offset)
+    and numerator = offset_value / value_gcd |> fmt_decimal
+    and denominator = offset / value_gcd |> fmt_decimal
+
+@description("Formats value to be represented as an integer potentially followed by a fractionfraction")
+@example("fmt_fraction(1234.56)")
+@example("fmt_fraction(0.000123456)")
+fn fmt_fraction(value: Scalar) -> String = 
+  if !str_contains(value_str, ".")
+    then value_str
+    else join(cons(output_value_str, tail(parts)), " ") 
+  where value_str = fmt_decimal(value)
+    and parts = value_str |> str_split(" ")
+    and value_part = head(parts)
+    and value_decimal_parts = value_part |> str_split(".")
+    and value_decimal_part = value_decimal_parts |> head
+    and fraction: Fraction = _get_as_fraction(value_of(value))
+    and output_value_str = 
+      if value_decimal_part != "0" && value_decimal_part != ""
+        then "{value_decimal_part} + {mod(fraction.numerator, fraction.denominator)}/{fraction.denominator}"
+        else "{mod(fraction.numerator, fraction.denominator)}/{fraction.denominator}"
