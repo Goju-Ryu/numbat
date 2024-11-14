@@ -1,6 +1,8 @@
+use core::quantities
 use core::strings
 use core::strings::extra
 use core::functions
+use core::lists
 use math::number_theory
 
 let _empty_str = ""
@@ -80,7 +82,7 @@ struct Fraction {
   denominator: Scalar,
 }
 
-
+# TODO figure out why fractions sometimes get absurdly large values
 fn _get_as_fraction(value: Scalar) -> Fraction = 
   if decimal_index == -1
     then Fraction { numerator: value, denominator: 1 }
