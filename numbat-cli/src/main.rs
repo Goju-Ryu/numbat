@@ -27,7 +27,9 @@ use rustyline::{
     error::ReadlineError, history::DefaultHistory, Completer, Editor, Helper, Hinter, Validator,
 };
 use rustyline::{EventHandler, Highlighter, KeyCode, KeyEvent, Modifiers};
+use walkdir::WalkDir;
 
+use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -92,6 +94,10 @@ struct Args {
     /// Turn on debug mode and print disassembler output (hidden, mainly for development)
     #[arg(long, short, hide = true)]
     debug: bool,
+
+    /// Format the given numbat file or files.
+    #[arg(long, value_name = "PATH", num_args = 0..=1, default_missing_value = "./", exclusive = true)]
+    fmt: Option<PathBuf>,
 }
 
 struct ParseEvaluationOutcome {
@@ -181,7 +187,7 @@ impl Cli {
         Ok(Self {
             context: Arc::new(Mutex::new(context)),
             config,
-            file: args.file,
+            file: args.file.or(args.fmt),
             expression: args.expression,
         })
     }
@@ -584,6 +590,48 @@ impl Cli {
         fs::create_dir_all(&data_dir).ok();
         Ok(data_dir.join("history"))
     }
+
+    fn fmt(&mut self) -> Result<()> {
+        // Enabled ANSI colors on Windows 10
+        #[cfg(windows)]
+        colored::control::set_virtual_terminal(true).unwrap();
+
+        match self.config.color {
+            ColorMode::Never => SHOULD_COLORIZE.set_override(false),
+            ColorMode::Always => SHOULD_COLORIZE.set_override(true),
+            ColorMode::Auto => (), // Let colored itself decide whether coloring should occur or not
+        }
+        
+        let mut code_and_source = Vec::new();
+
+        if let Some(ref path) = self.file {
+            for file in get_nbt_files(path) {
+                println!("Adding file: {file:?}");
+                code_and_source.push((
+                    (fs::read_to_string(file).context(format!(
+                        "Could not load source file '{}'",
+                        path.to_string_lossy()
+                    ))?),
+                    CodeSource::File(path.clone()),
+                ));
+            }
+        };
+
+        if let Some(expressions) = &self.expression {
+            code_and_source.push((expressions.iter().join("\n"), CodeSource::Text));
+        }
+
+        if !code_and_source.is_empty() {
+            for (code, code_source) in code_and_source {
+                let results = self.context.lock().unwrap().get_ast(&code, code_source)?;
+                results.iter().for_each(|result| println!("{result:?}")); // TODO construct formatting tree
+            }
+        } else {
+            let path = self.file.clone();
+            println!("No codesources found for {path:?}")
+        }
+        Ok(())
+    }
 }
 
 fn generate_config() -> Result<()> {
@@ -616,8 +664,33 @@ fn generate_config() -> Result<()> {
     Ok(())
 }
 
+fn get_nbt_files(path: &PathBuf) -> Vec<PathBuf> {
+    let nbt_ext = Some(OsStr::new("nbt"));
+    if path.is_dir() {
+        WalkDir::new(path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| e.into_path())
+            .filter(|e| e.extension() == nbt_ext)
+            .collect()
+    } else if path.extension() == nbt_ext {
+        vec![path.to_owned()]
+    } else {
+        vec![]
+    }
+}
+
 fn main() {
     let args = Args::parse();
+
+    if args.fmt.is_some() {        
+        if let Err(e) = Cli::new(args).and_then(|mut cli| cli.fmt()) {
+            eprintln!("{e:#}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
+    }
+
 
     if args.generate_config {
         if let Err(e) = generate_config() {

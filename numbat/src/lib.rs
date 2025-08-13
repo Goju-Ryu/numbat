@@ -815,6 +815,24 @@ impl Context {
         Ok((typed_statements, result))
     }
 
+    pub fn get_ast<'a>(
+        &mut self,
+        code: &'a str,
+        code_source: CodeSource,
+    ) -> Result<Vec<ast::Statement<'a>>> {
+        let statements = self
+            .resolver
+            .resolve(code, code_source.clone())
+            .map_err(NumbatError::ResolverError)?;
+
+        let result = self
+            .prefix_transformer
+            .transform(statements)
+            .map_err(NumbatError::NameResolutionError)?;
+
+        Ok(result)
+    }
+
     pub fn print_diagnostic(&self, error: impl ErrorDiagnostic) {
         use codespan_reporting::term::{
             self,

@@ -1256,6 +1256,7 @@ dependencies = [
  "serde",
  "terminal_size",
  "toml",
+ "walkdir",
 ]
 
 [[package]]
