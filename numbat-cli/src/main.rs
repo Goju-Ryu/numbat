@@ -1,6 +1,7 @@
 mod ansi_formatter;
 mod completer;
 mod config;
+mod fmt;
 mod highlighter;
 
 use ansi_formatter::ansi_format;
@@ -601,7 +602,7 @@ impl Cli {
             ColorMode::Always => SHOULD_COLORIZE.set_override(true),
             ColorMode::Auto => (), // Let colored itself decide whether coloring should occur or not
         }
-        
+
         let mut code_and_source = Vec::new();
 
         if let Some(ref path) = self.file {
@@ -683,14 +684,13 @@ fn get_nbt_files(path: &PathBuf) -> Vec<PathBuf> {
 fn main() {
     let args = Args::parse();
 
-    if args.fmt.is_some() {        
+    if args.fmt.is_some() {
         if let Err(e) = Cli::new(args).and_then(|mut cli| cli.fmt()) {
             eprintln!("{e:#}");
             std::process::exit(1);
         }
         std::process::exit(0);
     }
-
 
     if args.generate_config {
         if let Err(e) = generate_config() {
