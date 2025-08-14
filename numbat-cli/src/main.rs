@@ -1,7 +1,6 @@
 mod ansi_formatter;
 mod completer;
 mod config;
-mod fmt;
 mod highlighter;
 
 use ansi_formatter::ansi_format;
@@ -13,6 +12,7 @@ use highlighter::NumbatHighlighter;
 use itertools::Itertools;
 use numbat::command::{CommandControlFlow, CommandRunner};
 use numbat::diagnostic::ErrorDiagnostic;
+use numbat::fmt::fmt;
 use numbat::module_importer::{BuiltinModuleImporter, ChainedImporter, FileSystemImporter};
 use numbat::pretty_print::PrettyPrint;
 use numbat::resolver::CodeSource;
@@ -624,8 +624,8 @@ impl Cli {
 
         if !code_and_source.is_empty() {
             for (code, code_source) in code_and_source {
-                let results = self.context.lock().unwrap().get_ast(&code, code_source)?;
-                results.iter().for_each(|result| println!("{result:?}")); // TODO construct formatting tree
+                let ast = self.context.lock().unwrap().get_ast(&code, code_source)?;
+                print!("{f}", f = fmt(&code, ast, 180))
             }
         } else {
             let path = self.file.clone();

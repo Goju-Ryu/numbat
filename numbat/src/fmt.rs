@@ -1,23 +1,30 @@
-use std::collections::HashSet;
+use itertools::Itertools;
+use jiff::Span;
 
-// Implementation is shamelessly stolen from Yorick Peterse's article "How to write a code formatter" 
+use crate::{
+    ast::{Expression, Statement},
+    number::Number,
+};
+use std::{collections::HashSet, ops::RangeFrom, slice::SliceIndex, usize};
+
+// Implementation is shamelessly stolen from Yorick Peterse's article "How to write a code formatter"
 // Find it at https://yorickpeterse.com/articles/how-to-write-a-code-formatter/#grouping-nodes
 
-pub enum FormatNode<'a> {
-    Group(usize, Vec<FormatNode<'a>>),
-    Nodes(Vec<FormatNode<'a>>),
-    IfWrap(usize, Box<FormatNode<'a>>, Box<FormatNode<'a>>),
-    Text(&'a str),
-    Unicode(&'a str, usize),
+enum FormatNode {
+    Group(usize, Vec<FormatNode>),
+    Nodes(Vec<FormatNode>),
+    IfWrap(usize, Box<FormatNode>, Box<FormatNode>),
+    Text(String),
+    Unicode(String, usize),
     SpaceOrLine,
     Line,
-    Indent(Vec<FormatNode<'a>>),
+    Indent(Vec<FormatNode>),
 }
 
-impl FormatNode<'_> {
-    fn from_unicode(value: &str) -> FormatNode<'_> {
+impl FormatNode {
+    fn from_unicode(value: &str) -> FormatNode {
         let len = value.chars().count();
-        FormatNode::Unicode(value, len)
+        FormatNode::Unicode(value.to_string(), len)
     }
 
     fn width(&self, wrapped: &HashSet<usize>) -> usize {
@@ -53,7 +60,7 @@ impl Wrap {
 
 const INDENT: &str = "    ";
 
-pub struct Generator {
+struct Generator {
     buffer: String,
     indent: usize,
     size: usize,
@@ -72,7 +79,7 @@ impl Generator {
         }
     }
 
-    pub fn generate(&mut self, node: FormatNode) -> String {
+    fn generate(&mut self, node: FormatNode) -> String {
         self.node(&node, &Wrap::Detect);
         let result = self.buffer.clone();
         self.buffer.clear();

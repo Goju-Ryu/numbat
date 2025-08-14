@@ -11,6 +11,7 @@ mod decorator;
 pub mod diagnostic;
 mod dimension;
 mod ffi;
+pub mod fmt;
 mod gamma;
 pub mod help;
 #[cfg(feature = "html-formatter")]
