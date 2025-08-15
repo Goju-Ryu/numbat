@@ -1,15 +1,15 @@
 use itertools::Itertools;
-use jiff::Span;
 
 use crate::{
-    ast::{Expression, Statement},
-    number::Number,
+    ast::{BinaryOperator, Expression, Statement},
+    span::{ByteIndex, Span},
 };
-use std::{collections::HashSet, ops::RangeFrom, slice::SliceIndex, usize};
+use std::collections::HashSet;
 
 // Implementation is shamelessly stolen from Yorick Peterse's article "How to write a code formatter"
 // Find it at https://yorickpeterse.com/articles/how-to-write-a-code-formatter/#grouping-nodes
 
+#[derive(Clone)]
 enum FormatNode {
     Group(usize, Vec<FormatNode>),
     Nodes(Vec<FormatNode>),
@@ -19,6 +19,7 @@ enum FormatNode {
     SpaceOrLine,
     Line,
     Indent(Vec<FormatNode>),
+    RequiredLine,
 }
 
 impl FormatNode {
@@ -40,6 +41,7 @@ impl FormatNode {
             FormatNode::Unicode(_, len) => *len,
             FormatNode::SpaceOrLine => 1,
             FormatNode::Line => 0,
+            FormatNode::RequiredLine => 0,
         }
     }
 }
@@ -120,6 +122,7 @@ impl Generator {
                 self.indent -= 1;
             }
             FormatNode::Indent(nodes) => self.nodes(nodes, wrap),
+            FormatNode::RequiredLine => self.new_line(),
         }
     }
 
@@ -139,20 +142,36 @@ impl Generator {
     }
 }
 
-
 struct Builder<'a> {
     id: usize,
     source: &'a str,
+    prev_span: Span,
 }
 
-impl Builder<'_> {
-    fn new<'a>(source: &'a str) -> Builder<'a> {
-        Builder { id: 0, source }
+impl<'a> Builder<'a> {
+    fn new(source: &'a str) -> Builder<'a> {
+        Builder {
+            id: 0,
+            source,
+            prev_span: Span {
+                start: ByteIndex(0),
+                end: ByteIndex(0),
+                code_source_id: 0,
+            },
+        }
     }
 
-    fn build<'a>(&'a mut self, ast: Vec<Statement<'a>>) -> FormatNode {
+    fn build(&'a mut self, ast: Vec<Statement<'a>>) -> FormatNode {
         let format_nodes = ast.iter().map(|n| self.build_statement(n)).collect();
-        FormatNode::Nodes(format_nodes)
+
+        let remaining_text = &self.source[self.prev_span.end.as_usize()..].trim();
+
+        FormatNode::Nodes(vec![
+            FormatNode::Nodes(format_nodes),
+            FormatNode::RequiredLine,
+            FormatNode::from_unicode(remaining_text),
+            FormatNode::RequiredLine,
+        ])
     }
 
     fn new_id(&mut self) -> usize {
@@ -160,7 +179,33 @@ impl Builder<'_> {
         self.id
     }
 
-    fn build_statement<'a>(&mut self, node: &Statement<'a>) -> FormatNode {
+    fn with_comments(&mut self, current_span: Span, node: FormatNode) -> FormatNode {
+        if self.prev_span.end.as_usize() <= current_span.start.as_usize() {
+            let text =
+                self.source[self.prev_span.end.as_usize()..current_span.start.as_usize()].trim();
+            self.prev_span = current_span;
+            if text.len() > 0 {
+                let nodes = Itertools::intersperse(
+                    text.lines().map(|line| FormatNode::from_unicode(line)),
+                    FormatNode::SpaceOrLine,
+                )
+                .collect();
+
+                FormatNode::Nodes(vec![
+                    FormatNode::Line,
+                    FormatNode::Nodes(nodes),
+                    FormatNode::RequiredLine,
+                    node,
+                ])
+            } else {
+                node
+            }
+        } else {
+            node
+        }
+    }
+
+    fn build_statement(&mut self, node: &Statement<'a>) -> FormatNode {
         match node {
             Statement::Expression(expr) => self.build_expression(expr),
             Statement::DefineVariable(define_variable) => todo!(),
@@ -194,10 +239,18 @@ impl Builder<'_> {
         }
     }
 
-    fn build_expression<'a>(&'a mut self, expr: &Expression<'a>) -> FormatNode {
+    fn build_expression(&mut self, expr: &Expression<'a>) -> FormatNode {
         match expr {
-            Expression::Scalar(_, number) => {
-                FormatNode::Text(number.clone().pretty_print().to_string())
+            Expression::Scalar(span, number) => {
+                let num = self.source[span.start.as_usize()..span.end.as_usize()].to_string();
+
+                let scalar_node = if num[1..].starts_with(['x', 'o', 'b']) {
+                    FormatNode::Text(num)
+                } else {
+                    FormatNode::Text(number.pretty_print().to_string())
+                };
+
+                self.with_comments(*span, scalar_node)
             }
             Expression::Identifier(span, _) => todo!(),
             Expression::UnitIdentifier(span, prefix, compact_string, compact_string1) => todo!(),
