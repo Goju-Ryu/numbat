@@ -205,6 +205,11 @@ impl<'a> Builder<'a> {
         }
     }
 
+    fn from_span(&self, span: &Span) -> FormatNode {
+        let text = self.source[span.end.as_usize()..span.start.as_usize()].trim();
+        FormatNode::from_unicode(text)
+    }
+
     fn build_statement(&mut self, node: &Statement<'a>) -> FormatNode {
         match node {
             Statement::Expression(expr) => self.build_expression(expr),
@@ -252,16 +257,48 @@ impl<'a> Builder<'a> {
 
                 self.with_comments(*span, scalar_node)
             }
-            Expression::Identifier(span, _) => todo!(),
+            Expression::Identifier(span, name) => {
+                self.with_comments(*span, FormatNode::from_unicode(name))
+            }
             Expression::UnitIdentifier(span, prefix, compact_string, compact_string1) => todo!(),
-            Expression::TypedHole(span) => todo!(),
+            Expression::TypedHole(span) => self.with_comments(*span, self.from_span(span)),
             Expression::UnaryOperator { op, expr, span_op } => todo!(),
             Expression::BinaryOperator {
                 op,
                 lhs,
                 rhs,
                 span_op,
-            } => todo!(),
+            } => {
+                let op = match op {
+                    BinaryOperator::Add => FormatNode::Text(" + ".to_string()),
+                    BinaryOperator::Sub => FormatNode::Text(" - ".to_string()),
+                    BinaryOperator::Mul => FormatNode::Text(" * ".to_string()),
+                    BinaryOperator::Div => FormatNode::Text(" / ".to_string()),
+                    BinaryOperator::Power => FormatNode::Text(" ^ ".to_string()),
+                    BinaryOperator::ConvertTo => FormatNode::Text(" -> ".to_string()),
+                    BinaryOperator::LessThan => FormatNode::Text(" < ".to_string()),
+                    BinaryOperator::GreaterThan => FormatNode::Text(" > ".to_string()),
+                    BinaryOperator::LessOrEqual => FormatNode::Text(" <= ".to_string()),
+                    BinaryOperator::GreaterOrEqual => FormatNode::Text(" >= ".to_string()),
+                    BinaryOperator::Equal => FormatNode::Text(" == ".to_string()),
+                    BinaryOperator::NotEqual => FormatNode::Text(" != ".to_string()),
+                    BinaryOperator::LogicalAnd => FormatNode::Text(" && ".to_string()),
+                    BinaryOperator::LogicalOr => FormatNode::Text(" || ".to_string()),
+                };
+
+                let lhs_node = self.build_expression(lhs);
+
+                if let Some(span) = span_op {
+                    self.prev_span = *span;
+                };
+
+                let rhs_node = self.build_expression(rhs);
+
+                self.with_comments(
+                    lhs.full_span().extend(&rhs.full_span()),
+                    FormatNode::Nodes(vec![lhs_node, op, rhs_node]),
+                )
+            }
             Expression::FunctionCall(span, span1, expression, expressions) => todo!(),
             Expression::Boolean(span, _) => todo!(),
             Expression::String(span, string_parts) => todo!(),
