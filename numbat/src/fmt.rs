@@ -1,7 +1,8 @@
 use itertools::Itertools;
+use num_traits::ToPrimitive;
 
 use crate::{
-    ast::{BinaryOperator, Expression, Statement},
+    ast::{BinaryOperator, Expression, Statement, UnaryOperator},
     span::{ByteIndex, Span},
 };
 use std::collections::HashSet;
@@ -26,6 +27,10 @@ impl FormatNode {
     fn from_unicode(value: &str) -> FormatNode {
         let len = value.chars().count();
         FormatNode::Unicode(value.to_string(), len)
+    }
+
+    fn from_ascii(value: &str) -> FormatNode {
+        FormatNode::Text(value.to_string())
     }
 
     fn width(&self, wrapped: &HashSet<usize>) -> usize {
@@ -162,7 +167,11 @@ impl<'a> Builder<'a> {
     }
 
     fn build(&'a mut self, ast: Vec<Statement<'a>>) -> FormatNode {
-        let format_nodes = ast.iter().map(|n| self.build_statement(n)).collect();
+        let format_nodes = Itertools::intersperse(
+            ast.iter().map(|n| self.build_statement(n)),
+            FormatNode::Nodes(vec![FormatNode::RequiredLine, FormatNode::RequiredLine]),
+        )
+        .collect();
 
         let remaining_text = &self.source[self.prev_span.end.as_usize()..].trim();
 
@@ -205,9 +214,25 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn from_span(&self, span: &Span) -> FormatNode {
+    fn build_text_from_span(&mut self, span: &Span) -> FormatNode {
         let text = self.source[span.end.as_usize()..span.start.as_usize()].trim();
-        FormatNode::from_unicode(text)
+        self.with_comments(*span, FormatNode::from_unicode(text))
+    }
+
+    fn skip(&mut self, token: &str) {
+        let mut rest = &self.source[self.prev_span.end.as_usize()..];
+        let mut end = self.prev_span.end;
+
+        while !rest.starts_with(token) {
+            rest = &rest[1..];
+            end += 1;
+        }
+
+        self.prev_span = Span {
+            start: self.prev_span.end,
+            end: end + token.len().to_u32().unwrap(),
+            code_source_id: self.prev_span.code_source_id,
+        }
     }
 
     fn build_statement(&mut self, node: &Statement<'a>) -> FormatNode {
@@ -252,7 +277,7 @@ impl<'a> Builder<'a> {
                 let scalar_node = if num[1..].starts_with(['x', 'o', 'b']) {
                     FormatNode::Text(num)
                 } else {
-                    FormatNode::Text(number.pretty_print().to_string())
+                    FormatNode::from_ascii(&number.pretty_print())
                 };
 
                 self.with_comments(*span, scalar_node)
@@ -260,33 +285,41 @@ impl<'a> Builder<'a> {
             Expression::Identifier(span, name) => {
                 self.with_comments(*span, FormatNode::from_unicode(name))
             }
-            Expression::UnitIdentifier(span, prefix, compact_string, compact_string1) => todo!(),
-            Expression::TypedHole(span) => self.with_comments(*span, self.from_span(span)),
-            Expression::UnaryOperator { op, expr, span_op } => todo!(),
+            Expression::UnitIdentifier(span, prefix, name, _) => self.with_comments(
+                *span,
+                FormatNode::from_unicode(&(prefix.as_string_short() + name)),
+            ),
+            Expression::TypedHole(span) => self.build_text_from_span(span),
+            Expression::UnaryOperator { op, expr, span_op } => match op {
+                UnaryOperator::Factorial(count) => {
+                    let expr_node = self.build_expression(expr);
+                    self.with_comments(
+                        *span_op,
+                        FormatNode::Nodes(vec![
+                            expr_node,
+                            FormatNode::from_ascii(&"!".repeat(count.get())),
+                        ]),
+                    )
+                }
+                UnaryOperator::Negate => FormatNode::Nodes(vec![
+                    self.with_comments(*span_op, FormatNode::Nodes(vec![])),
+                    FormatNode::from_ascii("-"),
+                    self.build_expression(expr),
+                ]),
+                UnaryOperator::LogicalNeg => FormatNode::Nodes(vec![
+                    self.with_comments(*span_op, FormatNode::Nodes(vec![])),
+                    FormatNode::from_ascii("!"),
+                    self.build_expression(expr),
+                ]),
+            },
             Expression::BinaryOperator {
                 op,
                 lhs,
                 rhs,
                 span_op,
             } => {
-                let op = match op {
-                    BinaryOperator::Add => FormatNode::Text(" + ".to_string()),
-                    BinaryOperator::Sub => FormatNode::Text(" - ".to_string()),
-                    BinaryOperator::Mul => FormatNode::Text(" * ".to_string()),
-                    BinaryOperator::Div => FormatNode::Text(" / ".to_string()),
-                    BinaryOperator::Power => FormatNode::Text(" ^ ".to_string()),
-                    BinaryOperator::ConvertTo => FormatNode::Text(" -> ".to_string()),
-                    BinaryOperator::LessThan => FormatNode::Text(" < ".to_string()),
-                    BinaryOperator::GreaterThan => FormatNode::Text(" > ".to_string()),
-                    BinaryOperator::LessOrEqual => FormatNode::Text(" <= ".to_string()),
-                    BinaryOperator::GreaterOrEqual => FormatNode::Text(" >= ".to_string()),
-                    BinaryOperator::Equal => FormatNode::Text(" == ".to_string()),
-                    BinaryOperator::NotEqual => FormatNode::Text(" != ".to_string()),
-                    BinaryOperator::LogicalAnd => FormatNode::Text(" && ".to_string()),
-                    BinaryOperator::LogicalOr => FormatNode::Text(" || ".to_string()),
-                };
-
                 let lhs_node = self.build_expression(lhs);
+                let op_node: FormatNode = Builder::format_binary_operator(op);
 
                 if let Some(span) = span_op {
                     self.prev_span = *span;
@@ -296,13 +329,65 @@ impl<'a> Builder<'a> {
 
                 self.with_comments(
                     lhs.full_span().extend(&rhs.full_span()),
-                    FormatNode::Nodes(vec![lhs_node, op, rhs_node]),
+                    FormatNode::Nodes(vec![lhs_node, op_node, rhs_node]),
                 )
             }
             Expression::FunctionCall(span, span1, expression, expressions) => todo!(),
-            Expression::Boolean(span, _) => todo!(),
-            Expression::String(span, string_parts) => todo!(),
-            Expression::Condition(span, expression, expression1, expression2) => todo!(),
+            Expression::Boolean(span, bool) => self.with_comments(
+                *span,
+                if *bool {
+                    FormatNode::from_ascii("true")
+                } else {
+                    FormatNode::from_ascii("false")
+                },
+            ),
+            Expression::String(span, string_parts) => todo!(), //TODO Make helper function to handle string parts
+            Expression::Condition(span, condition, then_expr, else_expr) => {
+                let comment_node = self.with_comments(
+                    Span {
+                        start: span.start,
+                        end: span.start,
+                        code_source_id: span.code_source_id,
+                    },
+                    FormatNode::Nodes(vec![]),
+                );
+
+                self.skip("if");
+                let condition_node = self.build_expression(condition);
+                self.skip("then");
+                let then_expr_node = self.build_expression(then_expr);
+                self.skip("else");
+                let else_expr_node = self.build_expression(else_expr);
+
+                FormatNode::Nodes(vec![
+                    comment_node,
+                    FormatNode::Group(
+                        self.new_id(),
+                        vec![
+                            FormatNode::from_ascii("if "),
+                            condition_node,
+                            FormatNode::SpaceOrLine,
+                            FormatNode::Group(
+                                self.new_id(),
+                                vec![
+                                    FormatNode::from_ascii("then"),
+                                    FormatNode::SpaceOrLine,
+                                    FormatNode::Indent(vec![then_expr_node]),
+                                ],
+                            ),
+                            FormatNode::SpaceOrLine,
+                            FormatNode::Group(
+                                self.new_id(),
+                                vec![
+                                    FormatNode::from_ascii("else"),
+                                    FormatNode::SpaceOrLine,
+                                    FormatNode::Indent(vec![else_expr_node]),
+                                ],
+                            ),
+                        ],
+                    ),
+                ])
+            }
             Expression::InstantiateStruct {
                 full_span,
                 ident_span,
@@ -311,6 +396,25 @@ impl<'a> Builder<'a> {
             } => todo!(),
             Expression::AccessField(span, span1, expression, _) => todo!(),
             Expression::List(span, expressions) => todo!(),
+        }
+    }
+
+    fn format_binary_operator(op: &BinaryOperator) -> FormatNode {
+        match op {
+            BinaryOperator::Add => FormatNode::from_ascii(" + "),
+            BinaryOperator::Sub => FormatNode::from_ascii(" - "),
+            BinaryOperator::Mul => FormatNode::from_ascii(" * "),
+            BinaryOperator::Div => FormatNode::from_ascii(" / "),
+            BinaryOperator::Power => FormatNode::from_ascii(" ^ "),
+            BinaryOperator::ConvertTo => FormatNode::from_ascii(" -> "),
+            BinaryOperator::LessThan => FormatNode::from_ascii(" < "),
+            BinaryOperator::GreaterThan => FormatNode::from_ascii(" > "),
+            BinaryOperator::LessOrEqual => FormatNode::from_ascii(" <= "),
+            BinaryOperator::GreaterOrEqual => FormatNode::from_ascii(" >= "),
+            BinaryOperator::Equal => FormatNode::from_ascii(" == "),
+            BinaryOperator::NotEqual => FormatNode::from_ascii(" != "),
+            BinaryOperator::LogicalAnd => FormatNode::from_ascii(" && "),
+            BinaryOperator::LogicalOr => FormatNode::from_ascii(" || "),
         }
     }
 }
