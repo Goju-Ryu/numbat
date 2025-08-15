@@ -188,6 +188,34 @@ impl<'a> Builder<'a> {
         self.id
     }
 
+    fn build_comments_to_index(&mut self, current_index: ByteIndex) -> FormatNode {
+        if self.prev_span.end.as_usize() <= current_index.as_usize() {
+            let text = self.source[self.prev_span.end.as_usize()..current_index.as_usize()].trim();
+            self.prev_span = Span {
+                start: self.prev_span.end,
+                end: current_index,
+                code_source_id: self.prev_span.code_source_id,
+            };
+            if text.len() > 0 {
+                let nodes = Itertools::intersperse(
+                    text.lines().map(|line| FormatNode::from_unicode(line)),
+                    FormatNode::SpaceOrLine,
+                )
+                .collect();
+
+                FormatNode::Nodes(vec![
+                    FormatNode::Line,
+                    FormatNode::Nodes(nodes),
+                    FormatNode::RequiredLine,
+                ])
+            } else {
+                FormatNode::Nodes(vec![])
+            }
+        } else {
+            FormatNode::Nodes(vec![])
+        }
+    }
+
     fn with_comments(&mut self, current_span: Span, node: FormatNode) -> FormatNode {
         if self.prev_span.end.as_usize() <= current_span.start.as_usize() {
             let text =
@@ -302,12 +330,12 @@ impl<'a> Builder<'a> {
                     )
                 }
                 UnaryOperator::Negate => FormatNode::Nodes(vec![
-                    self.with_comments(*span_op, FormatNode::Nodes(vec![])),
+                    self.build_comments_to_index(span_op.start),
                     FormatNode::from_ascii("-"),
                     self.build_expression(expr),
                 ]),
                 UnaryOperator::LogicalNeg => FormatNode::Nodes(vec![
-                    self.with_comments(*span_op, FormatNode::Nodes(vec![])),
+                    self.build_comments_to_index(span_op.start),
                     FormatNode::from_ascii("!"),
                     self.build_expression(expr),
                 ]),
@@ -343,14 +371,7 @@ impl<'a> Builder<'a> {
             ),
             Expression::String(span, string_parts) => todo!(), //TODO Make helper function to handle string parts
             Expression::Condition(span, condition, then_expr, else_expr) => {
-                let comment_node = self.with_comments(
-                    Span {
-                        start: span.start,
-                        end: span.start,
-                        code_source_id: span.code_source_id,
-                    },
-                    FormatNode::Nodes(vec![]),
-                );
+                let comment_node = self.build_comments_to_index(span.start);
 
                 self.skip("if");
                 let condition_node = self.build_expression(condition);
@@ -395,7 +416,31 @@ impl<'a> Builder<'a> {
                 fields,
             } => todo!(),
             Expression::AccessField(span, span1, expression, _) => todo!(),
-            Expression::List(span, expressions) => todo!(),
+            Expression::List(span, expressions) => {
+                let comment_node = self.build_comments_to_index(span.start);
+                self.skip("[");
+                let item_nodes = expressions
+                    .iter()
+                    .map(|expr| {
+                        let node = FormatNode::Nodes(vec![
+                            self.build_expression(expr),
+                            FormatNode::from_ascii(","),
+                            FormatNode::SpaceOrLine,
+                        ]);
+                        self.skip(",");
+                        node
+                    })
+                    .collect();
+                FormatNode::Group(
+                    self.new_id(),
+                    vec![
+                        comment_node,
+                        FormatNode::from_ascii("["),
+                        FormatNode::Indent(item_nodes),
+                        FormatNode::from_ascii("]"),
+                    ],
+                )
+            }
         }
     }
 
