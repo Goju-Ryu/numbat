@@ -5,7 +5,7 @@ use crate::{
     ast::{BinaryOperator, Expression, Statement, UnaryOperator},
     span::{ByteIndex, Span},
 };
-use std::collections::HashSet;
+use std::{collections::HashSet, convert::identity};
 
 // Implementation is shamelessly stolen from Yorick Peterse's article "How to write a code formatter"
 // Find it at https://yorickpeterse.com/articles/how-to-write-a-code-formatter/#grouping-nodes
@@ -31,6 +31,11 @@ impl FormatNode {
 
     fn from_ascii(value: &str) -> FormatNode {
         FormatNode::Text(value.to_string())
+    }
+
+    fn filter_into(nodes: Vec<Option<FormatNode>>) -> FormatNode {
+        let ns = nodes.iter().filter_map(|n| n.to_owned()).collect();
+        FormatNode::Nodes(ns)
     }
 
     fn width(&self, wrapped: &HashSet<usize>) -> usize {
@@ -173,14 +178,18 @@ impl<'a> Builder<'a> {
         )
         .collect();
 
-        let remaining_text = &self.source[self.prev_span.end.as_usize()..].trim();
+        let end_index = ByteIndex(self.source.len() as u32);
+        let end_comments = self.build_comments_to_index(&end_index);
 
-        FormatNode::Nodes(vec![
-            FormatNode::Nodes(format_nodes),
-            FormatNode::RequiredLine,
-            FormatNode::from_unicode(remaining_text),
-            FormatNode::RequiredLine,
-        ])
+        match end_comments {
+            Some(comments) => FormatNode::Nodes(vec![
+                FormatNode::Nodes(format_nodes),
+                FormatNode::RequiredLine,
+                comments,
+                FormatNode::RequiredLine,
+            ]),
+            None => FormatNode::Nodes(format_nodes),
+        }
     }
 
     fn new_id(&mut self) -> usize {
@@ -188,79 +197,88 @@ impl<'a> Builder<'a> {
         self.id
     }
 
-    fn build_comments_to_index(&mut self, current_index: ByteIndex) -> FormatNode {
-        if self.prev_span.end.as_usize() <= current_index.as_usize() {
-            let text = self.source[self.prev_span.end.as_usize()..current_index.as_usize()].trim();
-            self.prev_span = Span {
-                start: self.prev_span.end,
-                end: current_index,
-                code_source_id: self.prev_span.code_source_id,
-            };
-            if text.len() > 0 {
-                let nodes = Itertools::intersperse(
-                    text.lines().map(|line| FormatNode::from_unicode(line)),
-                    FormatNode::SpaceOrLine,
-                )
-                .collect();
-
-                FormatNode::Nodes(vec![
-                    FormatNode::Line,
-                    FormatNode::Nodes(nodes),
-                    FormatNode::RequiredLine,
-                ])
-            } else {
-                FormatNode::Nodes(vec![])
-            }
-        } else {
-            FormatNode::Nodes(vec![])
+    fn advance_by(&mut self, bytes: usize) {
+        let prev_end = self.prev_span.end;
+        let code_source_id = self.prev_span.code_source_id;
+        self.prev_span = Span {
+            start: prev_end,
+            end: prev_end + (bytes as u32),
+            code_source_id,
         }
     }
 
-    fn with_comments(&mut self, current_span: Span, node: FormatNode) -> FormatNode {
-        if self.prev_span.end.as_usize() <= current_span.start.as_usize() {
-            let text =
-                self.source[self.prev_span.end.as_usize()..current_span.start.as_usize()].trim();
-            self.prev_span = current_span;
-            if text.len() > 0 {
-                let nodes = Itertools::intersperse(
-                    text.lines().map(|line| FormatNode::from_unicode(line)),
-                    FormatNode::SpaceOrLine,
-                )
-                .collect();
+    fn advance_to(&mut self, index: ByteIndex) {
+        if self.prev_span.end < index {
+            let prev_end = self.prev_span.end;
+            let code_source_id = self.prev_span.code_source_id;
+            self.prev_span = Span {
+                start: prev_end,
+                end: index,
+                code_source_id,
+            }
+        }
+    }
 
-                FormatNode::Nodes(vec![
-                    FormatNode::Line,
+    fn build_comments_to_index(&mut self, current_index: &ByteIndex) -> Option<FormatNode> {
+        if self.prev_span.end.as_usize() < current_index.as_usize() {
+            let text = self.source[self.prev_span.end.as_usize()..current_index.as_usize()].trim();
+            self.advance_to(*current_index);
+
+            fn get_line_comment(line: &str) -> Option<&str> {
+                let comment_start = line.find('#');
+                comment_start.map(|start| &line[start..])
+            }
+
+            let nodes: Vec<FormatNode> = Itertools::intersperse(
+                text.lines()
+                    .map(get_line_comment)
+                    .filter_map(identity)
+                    .map(|line| FormatNode::from_unicode(line)),
+                FormatNode::SpaceOrLine,
+            )
+            .collect();
+
+            if nodes.len() > 0 {
+                Some(FormatNode::Nodes(vec![
                     FormatNode::Nodes(nodes),
                     FormatNode::RequiredLine,
-                    node,
-                ])
+                ]))
             } else {
-                node
+                None
             }
         } else {
-            node
+            None
+        }
+    }
+
+    fn build_line_comment(&mut self, index: &ByteIndex) -> Option<FormatNode> {
+        if index >= &self.prev_span.end {
+            let is_followed_by_comment = self.source[index.as_usize()..]
+                .trim_start()
+                .starts_with('#');
+
+            if is_followed_by_comment {
+                let (line, _) = self.source[index.as_usize()..]
+                    .split_once('\n')
+                    .unwrap_or_else(|| (&self.source[index.as_usize()..], ""));
+
+                self.advance_by(line.len());
+                let comment_text = format!(" {}", line.trim());
+                Some(FormatNode::Nodes(vec![
+                    FormatNode::from_unicode(comment_text.as_str()),
+                    FormatNode::RequiredLine,
+                ]))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
     fn build_text_from_span(&mut self, span: &Span) -> FormatNode {
         let text = self.source[span.end.as_usize()..span.start.as_usize()].trim();
-        self.with_comments(*span, FormatNode::from_unicode(text))
-    }
-
-    fn skip(&mut self, token: &str) {
-        let mut rest = &self.source[self.prev_span.end.as_usize()..];
-        let mut end = self.prev_span.end;
-
-        while !rest.starts_with(token) {
-            rest = &rest[1..];
-            end += 1;
-        }
-
-        self.prev_span = Span {
-            start: self.prev_span.end,
-            end: end + token.len().to_u32().unwrap(),
-            code_source_id: self.prev_span.code_source_id,
-        }
+        FormatNode::from_unicode(text)
     }
 
     fn build_statement(&mut self, node: &Statement<'a>) -> FormatNode {
@@ -298,44 +316,33 @@ impl<'a> Builder<'a> {
     }
 
     fn build_expression(&mut self, expr: &Expression<'a>) -> FormatNode {
-        match expr {
-            Expression::Scalar(span, number) => {
-                let num = self.source[span.start.as_usize()..span.end.as_usize()].to_string();
+        let comment = self.build_comments_to_index(&expr.full_span().start);
 
-                let scalar_node = if num[1..].starts_with(['x', 'o', 'b']) {
-                    FormatNode::Text(num)
+        let node = match expr {
+            Expression::Scalar(span, number) => {
+                let num = &self.source[span.start.as_usize()..span.end.as_usize()];
+
+                if num[1..].starts_with(['x', 'o', 'b']) {
+                    FormatNode::from_ascii(num)
                 } else {
                     FormatNode::from_ascii(&number.pretty_print())
-                };
-
-                self.with_comments(*span, scalar_node)
+                }
             }
-            Expression::Identifier(span, name) => {
-                self.with_comments(*span, FormatNode::from_unicode(name))
+            Expression::Identifier(span, name) => FormatNode::from_unicode(name),
+            Expression::UnitIdentifier(span, prefix, name, _) => {
+                FormatNode::from_unicode(&(prefix.as_string_short() + name))
             }
-            Expression::UnitIdentifier(span, prefix, name, _) => self.with_comments(
-                *span,
-                FormatNode::from_unicode(&(prefix.as_string_short() + name)),
-            ),
             Expression::TypedHole(span) => self.build_text_from_span(span),
             Expression::UnaryOperator { op, expr, span_op } => match op {
-                UnaryOperator::Factorial(count) => {
-                    let expr_node = self.build_expression(expr);
-                    self.with_comments(
-                        *span_op,
-                        FormatNode::Nodes(vec![
-                            expr_node,
-                            FormatNode::from_ascii(&"!".repeat(count.get())),
-                        ]),
-                    )
-                }
+                UnaryOperator::Factorial(count) => FormatNode::Nodes(vec![
+                    self.build_expression(expr),
+                    FormatNode::from_ascii(&"!".repeat(count.get())),
+                ]),
                 UnaryOperator::Negate => FormatNode::Nodes(vec![
-                    self.build_comments_to_index(span_op.start),
                     FormatNode::from_ascii("-"),
                     self.build_expression(expr),
                 ]),
                 UnaryOperator::LogicalNeg => FormatNode::Nodes(vec![
-                    self.build_comments_to_index(span_op.start),
                     FormatNode::from_ascii("!"),
                     self.build_expression(expr),
                 ]),
@@ -348,66 +355,49 @@ impl<'a> Builder<'a> {
             } => {
                 let lhs_node = self.build_expression(lhs);
                 let op_node: FormatNode = Builder::format_binary_operator(op);
-
-                if let Some(span) = span_op {
-                    self.prev_span = *span;
-                };
-
                 let rhs_node = self.build_expression(rhs);
 
-                self.with_comments(
-                    lhs.full_span().extend(&rhs.full_span()),
-                    FormatNode::Nodes(vec![lhs_node, op_node, rhs_node]),
-                )
+                FormatNode::Nodes(vec![lhs_node, op_node, rhs_node])
             }
             Expression::FunctionCall(span, span1, expression, expressions) => todo!(),
-            Expression::Boolean(span, bool) => self.with_comments(
-                *span,
+            Expression::Boolean(span, bool) => {
                 if *bool {
                     FormatNode::from_ascii("true")
                 } else {
                     FormatNode::from_ascii("false")
-                },
-            ),
+                }
+            }
             Expression::String(span, string_parts) => todo!(), //TODO Make helper function to handle string parts
             Expression::Condition(span, condition, then_expr, else_expr) => {
-                let comment_node = self.build_comments_to_index(span.start);
-
-                self.skip("if");
                 let condition_node = self.build_expression(condition);
-                self.skip("then");
                 let then_expr_node = self.build_expression(then_expr);
-                self.skip("else");
                 let else_expr_node = self.build_expression(else_expr);
 
-                FormatNode::Nodes(vec![
-                    comment_node,
-                    FormatNode::Group(
-                        self.new_id(),
-                        vec![
-                            FormatNode::from_ascii("if "),
-                            condition_node,
-                            FormatNode::SpaceOrLine,
-                            FormatNode::Group(
-                                self.new_id(),
-                                vec![
-                                    FormatNode::from_ascii("then"),
-                                    FormatNode::SpaceOrLine,
-                                    FormatNode::Indent(vec![then_expr_node]),
-                                ],
-                            ),
-                            FormatNode::SpaceOrLine,
-                            FormatNode::Group(
-                                self.new_id(),
-                                vec![
-                                    FormatNode::from_ascii("else"),
-                                    FormatNode::SpaceOrLine,
-                                    FormatNode::Indent(vec![else_expr_node]),
-                                ],
-                            ),
-                        ],
-                    ),
-                ])
+                FormatNode::Nodes(vec![FormatNode::Group(
+                    self.new_id(),
+                    vec![
+                        FormatNode::from_ascii("if "),
+                        condition_node,
+                        FormatNode::SpaceOrLine,
+                        FormatNode::Group(
+                            self.new_id(),
+                            vec![
+                                FormatNode::from_ascii("then"),
+                                FormatNode::SpaceOrLine,
+                                FormatNode::Indent(vec![then_expr_node]),
+                            ],
+                        ),
+                        FormatNode::SpaceOrLine,
+                        FormatNode::Group(
+                            self.new_id(),
+                            vec![
+                                FormatNode::from_ascii("else"),
+                                FormatNode::SpaceOrLine,
+                                FormatNode::Indent(vec![else_expr_node]),
+                            ],
+                        ),
+                    ],
+                )])
             }
             Expression::InstantiateStruct {
                 full_span,
@@ -417,8 +407,7 @@ impl<'a> Builder<'a> {
             } => todo!(),
             Expression::AccessField(span, span1, expression, _) => todo!(),
             Expression::List(span, expressions) => {
-                let comment_node = self.build_comments_to_index(span.start);
-                self.skip("[");
+                // self.skip("[");
                 let item_nodes = expressions
                     .iter()
                     .map(|expr| {
@@ -427,21 +416,25 @@ impl<'a> Builder<'a> {
                             FormatNode::from_ascii(","),
                             FormatNode::SpaceOrLine,
                         ]);
-                        self.skip(",");
+                        // self.skip(",");
                         node
                     })
                     .collect();
                 FormatNode::Group(
                     self.new_id(),
                     vec![
-                        comment_node,
                         FormatNode::from_ascii("["),
                         FormatNode::Indent(item_nodes),
                         FormatNode::from_ascii("]"),
                     ],
                 )
             }
-        }
+        };
+
+        self.advance_to(expr.full_span().end);
+        let line_comment = self.build_line_comment(&expr.full_span().end);
+
+        FormatNode::filter_into(vec![comment, Some(node), line_comment])
     }
 
     fn format_binary_operator(op: &BinaryOperator) -> FormatNode {
